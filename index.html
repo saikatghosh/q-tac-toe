@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Split-Move Tic-Tac-Toe (Balanced)</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        body {
+            background-color: #0f172a;
+            color: #e2e8f0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        .pulse-ghost { animation: pulseGhost 1.5s infinite; }
+        .thinking { animation: thinkingPulse 1s infinite alternate; }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        @keyframes pulseGhost {
+            0%, 100% { opacity: 0.4; transform: scale(0.95); }
+            50% { opacity: 0.8; transform: scale(1.05); }
+        }
+        @keyframes thinkingPulse {
+            from { opacity: 0.6; }
+            to { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script type="text/babel">
+    const { useState, useEffect, useCallback, useRef } = React;
+
+    // --- Icons ---
+    const EyeIcon = () => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+    );
+    const SplitIcon = () => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12h-6"/><path d="M5 12h6"/><path d="m15 16 4-4-4-4"/><path d="m9 8-4 4 4 4"/></svg>
+    );
+    const CpuIcon = () => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>
+    );
+    const UserIcon = () => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    );
+    const RefreshIcon = () => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>
+    );
+    const BrainIcon = () => (
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z"/></svg>
+    );
+
+    // --- PERFECT AI ENGINE (Memoized Minimax with Alpha-Beta Pruning) ---
+
+    // Standard lines checking
+    const WIN_LINES = [
+        [0, 1, 2], [3, 4, 5], [6, 7, 8],
+        [0, 3, 6], [1, 4, 7], [2, 5, 8],
+        [0, 4, 8], [2, 4, 6]
+    ];
+
+    const calculateWinner = (squares) => {
+        for (let i = 0; i < 8; i++) {
+            const [a, b, c] = WIN_LINES[i];
+            if (squares[a] && squares[a] === squares[b] && squares[a] === squares[c]) {
+                return squares[a];
+            }
+        }
+        return null;
+    };
+
+    const memo = new Map();
+
+    // solve() returns the score for `aiPlayer` from the current board state.
+    // alpha: Best score Maximizer can guarantee so far
+    // beta: Best score Minimizer can guarantee so far
+    const solve = (board, turnPlayer, aiPlayer, alpha = -Infinity, beta = Infinity) => {
+        const boardKey = board.join(',') + ':' + turnPlayer + ':' + aiPlayer;
+        if (memo.has(boardKey)) return memo.get(boardKey);
+
+        const winner = calculateWinner(board);
+        if (winner === aiPlayer) return 100;
+        if (winner && winner !== aiPlayer) return -100;
+        
+        const emptyIndices = board.map((v, i) => v === null ? i : null).filter(v => v !== null);
+        
+        // RULE UPDATE: Game ends when only 1 square remains (8 marks placed)
+        // If we reach this state without a winner, it's a DRAW.
+        if (emptyIndices.length <= 1) return 0;
+
+        const nextPlayer = turnPlayer === 'X' ? 'O' : 'X';
+        let bestVal;
+
+        if (turnPlayer === aiPlayer) {
+            // --- AI PROPOSING (MAXIMIZER) ---
+            bestVal = -Infinity;
+
+            outerLoop:
+            for (let i = 0; i < emptyIndices.length; i++) {
+                for (let j = i + 1; j < emptyIndices.length; j++) {
+                    const p1 = emptyIndices[i];
+                    const p2 = emptyIndices[j];
+
+                    // 1. Evaluate Outcome 1 (Opponent picks p1)
+                    const b1 = [...board]; b1[p1] = turnPlayer;
+                    const score1 = solve(b1, nextPlayer, aiPlayer, alpha, beta);
+
+                    // Pruning
+                    if (score1 <= alpha) continue;
+
+                    // 2. Evaluate Outcome 2 (Opponent picks p2)
+                    const b2 = [...board]; b2[p2] = turnPlayer;
+                    const score2 = solve(b2, nextPlayer, aiPlayer, alpha, beta);
+
+                    const pairVal = Math.min(score1, score2);
+
+                    if (pairVal > bestVal) {
+                        bestVal = pairVal;
+                    }
+                    
+                    alpha = Math.max(alpha, bestVal);
+                    if (beta <= alpha) break outerLoop;
+                }
+            }
+        } else {
+            // --- OPPONENT PROPOSING (MINIMIZER) ---
+            bestVal = Infinity;
+
+            outerLoop:
+            for (let i = 0; i < emptyIndices.length; i++) {
+                for (let j = i + 1; j < emptyIndices.length; j++) {
+                    const p1 = emptyIndices[i];
+                    const p2 = emptyIndices[j];
+
+                    // 1. Evaluate Outcome 1 (AI picks p1)
+                    const b1 = [...board]; b1[p1] = turnPlayer;
+                    const score1 = solve(b1, nextPlayer, aiPlayer, alpha, beta);
+
+                    // Pruning
+                    if (score1 >= beta) continue;
+
+                    // 2. Evaluate Outcome 2 (AI picks p2)
+                    const b2 = [...board]; b2[p2] = turnPlayer;
+                    const score2 = solve(b2, nextPlayer, aiPlayer, alpha, beta);
+
+                    const pairVal = Math.max(score1, score2);
+
+                    if (pairVal < bestVal) {
+                        bestVal = pairVal;
+                    }
+
+                    beta = Math.min(beta, bestVal);
+                    if (beta <= alpha) break outerLoop;
+                }
+            }
+        }
+
+        const decayedVal = bestVal > 0 ? bestVal - 1 : (bestVal < 0 ? bestVal + 1 : 0);
+        memo.set(boardKey, decayedVal);
+        return decayedVal;
+    };
+
+
+    const Game = () => {
+        // --- State ---
+        const [board, setBoard] = useState(Array(9).fill(null)); 
+        const [turn, setTurn] = useState('X'); 
+        const [humanPlayer, setHumanPlayer] = useState('X'); 
+        const [stage, setStage] = useState('OFFER'); 
+        const [offer, setOffer] = useState([]); 
+        const [winner, setWinner] = useState(null);
+        const [showRules, setShowRules] = useState(true);
+        const [gameStarted, setGameStarted] = useState(false);
+        const [isProcessing, setIsProcessing] = useState(false);
+
+        // --- Helper Functions ---
+        const getWinStatus = (currentBoard) => calculateWinner(currentBoard);
+        
+        // RULE UPDATE: Draw if 8 squares are filled and no winner
+        const checkDraw = (currentBoard) => {
+            const filledCount = currentBoard.filter(cell => cell !== null).length;
+            return filledCount >= 8 && !calculateWinner(currentBoard);
+        };
+
+        // --- AI Execution ---
+
+        const aiProposePerfect = useCallback(() => {
+            memo.clear();
+            const aiPlayer = turn;
+            const emptyIndices = board.map((v, i) => v === null ? i : null).filter(v => v !== null);
+            
+            // Should not happen due to draw check, but safety first
+            if (emptyIndices.length < 2) return;
+
+            let bestPair = [emptyIndices[0], emptyIndices[1]];
+            let maxScore = -Infinity;
+            const nextPlayer = aiPlayer === 'X' ? 'O' : 'X';
+            let alpha = -Infinity;
+            const beta = Infinity;
+
+            for (let i = 0; i < emptyIndices.length; i++) {
+                for (let j = i + 1; j < emptyIndices.length; j++) {
+                    const p1 = emptyIndices[i];
+                    const p2 = emptyIndices[j];
+
+                    const b1 = [...board]; b1[p1] = aiPlayer;
+                    const s1 = solve(b1, nextPlayer, aiPlayer, alpha, beta);
+
+                    if (s1 <= alpha) continue;
+
+                    const b2 = [...board]; b2[p2] = aiPlayer;
+                    const s2 = solve(b2, nextPlayer, aiPlayer, alpha, beta);
+
+                    const pairValue = Math.min(s1, s2);
+
+                    if (pairValue > maxScore) {
+                        maxScore = pairValue;
+                        bestPair = [p1, p2];
+                    }
+                    alpha = Math.max(alpha, maxScore);
+                }
+            }
+
+            setOffer(bestPair);
+            setTimeout(() => {
+                setStage('DECIDE');
+                setIsProcessing(false);
+            }, 600);
+        }, [board, turn]);
+
+        const aiDecidePerfect = useCallback(() => {
+            const [optA, optB] = offer;
+            const opponent = turn; 
+            const aiPlayer = opponent === 'X' ? 'O' : 'X'; 
+            
+            memo.clear();
+            const nextPlayer = aiPlayer; 
+
+            const b1 = [...board]; b1[optA] = opponent;
+            const valA = solve(b1, nextPlayer, aiPlayer);
+
+            const b2 = [...board]; b2[optB] = opponent;
+            const valB = solve(b2, nextPlayer, aiPlayer);
+
+            const choice = valA >= valB ? optA : optB;
+
+            setTimeout(() => {
+                finalizeMove(choice);
+                setIsProcessing(false);
+            }, 600);
+        }, [board, offer, turn]);
+
+        useEffect(() => {
+            if (!gameStarted || winner) return;
+
+            const computerPlayer = humanPlayer === 'X' ? 'O' : 'X';
+            const isComputersTurnToPropose = (turn === computerPlayer && stage === 'OFFER');
+            const isComputersTurnToDecide = (turn === humanPlayer && stage === 'DECIDE');
+
+            if (isComputersTurnToPropose && !isProcessing) {
+                setIsProcessing(true);
+                setTimeout(aiProposePerfect, 50); 
+            } else if (isComputersTurnToDecide && !isProcessing) {
+                setIsProcessing(true);
+                setTimeout(aiDecidePerfect, 50);
+            }
+        }, [turn, stage, humanPlayer, gameStarted, winner, isProcessing, aiProposePerfect, aiDecidePerfect]);
+
+        const startGame = () => {
+            const rand = Math.random() < 0.5 ? 'X' : 'O';
+            setHumanPlayer(rand);
+            setTurn('X'); 
+            setBoard(Array(9).fill(null));
+            setOffer([]);
+            setStage('OFFER');
+            setWinner(null);
+            setGameStarted(true);
+            setShowRules(false);
+            setIsProcessing(false);
+            memo.clear();
+        };
+
+        const handleSquareClick = (index) => {
+            if (winner || board[index] || isProcessing) return;
+
+            const computerPlayer = humanPlayer === 'X' ? 'O' : 'X';
+
+            if (turn === humanPlayer && stage === 'OFFER') {
+                if (offer.includes(index)) {
+                    setOffer(offer.filter(i => i !== index));
+                } else {
+                    if (offer.length < 2) {
+                        const newOffer = [...offer, index];
+                        setOffer(newOffer);
+                        
+                        // NOTE: We no longer check for emptyCount === 1 here
+                        // because the game ends at 8 marks.
+                        
+                        if (newOffer.length === 2) {
+                            setStage('DECIDE'); 
+                        }
+                    }
+                }
+            }
+            else if (turn === computerPlayer && stage === 'DECIDE') {
+                if (offer.includes(index)) {
+                    finalizeMove(index);
+                }
+            }
+        };
+
+        const finalizeMove = (finalIndex) => {
+            const newBoard = [...board];
+            newBoard[finalIndex] = turn; 
+            
+            setBoard(newBoard);
+            setOffer([]);
+            
+            const win = getWinStatus(newBoard);
+            if (win) {
+                setWinner(win);
+                setGameStarted(false);
+            } else if (checkDraw(newBoard)) {
+                setWinner('Draw');
+                setGameStarted(false);
+            } else {
+                setTurn(prev => prev === 'X' ? 'O' : 'X');
+                setStage('OFFER');
+            }
+        };
+
+        const getInstruction = () => {
+            if (!gameStarted && !winner) return "Press Start";
+            if (winner) return winner === 'Draw' ? "It's a Draw! (8 moves reached)" : `Player ${winner} Wins!`;
+
+            const computerPlayer = humanPlayer === 'X' ? 'O' : 'X';
+            const isHumanTurn = turn === humanPlayer;
+
+            if (stage === 'OFFER') {
+                if (isHumanTurn) return "Select 2 squares to offer";
+                return "Perfect AI is Thinking...";
+            } else {
+                if (isHumanTurn) return "Perfect AI is Deciding...";
+                return "Choose which square the Computer gets!";
+            }
+        };
+
+        return (
+            <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-slate-900 text-slate-100">
+                <h1 className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-amber-400 to-orange-600 mb-2 text-center">
+                    Split-Move Tic-Tac-Toe
+                </h1>
+                <p className="text-slate-400 text-sm mb-6 flex items-center gap-2">
+                    <BrainIcon size={14}/> Balanced Edition (Max 8 Moves)
+                </p>
+
+                <div className={`
+                    w-full max-w-sm p-4 mb-6 rounded-xl border shadow-lg transition-all flex flex-col gap-2 items-center justify-center text-center
+                    ${winner ? 'bg-emerald-900/30 border-emerald-500' : 'bg-slate-800 border-slate-700'}
+                `}>
+                    <div className="text-lg font-bold flex items-center gap-2">
+                        {getInstruction()}
+                        {isProcessing && !winner && <span className="text-xs bg-amber-600 text-black font-bold px-2 py-1 rounded animate-pulse">Solving...</span>}
+                    </div>
+                    {gameStarted && (
+                        <div className="text-xs text-slate-400 flex gap-4 mt-1">
+                            <span className={`flex items-center gap-1 ${humanPlayer === 'X' ? 'text-cyan-400' : 'text-rose-400'}`}>
+                                <UserIcon size={14}/> You: {humanPlayer}
+                            </span>
+                            <span className={`flex items-center gap-1 ${humanPlayer === 'X' ? 'text-rose-400' : 'text-cyan-400'}`}>
+                                <CpuIcon size={14}/> CPU: {humanPlayer === 'X' ? 'O' : 'X'}
+                            </span>
+                        </div>
+                    )}
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 p-3 bg-slate-800 rounded-xl shadow-2xl border border-slate-700">
+                    {board.map((cell, idx) => {
+                        const isOffered = offer.includes(idx);
+                        const computerPlayer = humanPlayer === 'X' ? 'O' : 'X';
+                        let isInteractable = false;
+
+                        if (!winner && !cell && !isProcessing) {
+                            if (turn === humanPlayer && stage === 'OFFER') {
+                                isInteractable = offer.length < 2 || isOffered;
+                            } else if (turn === computerPlayer && stage === 'DECIDE') {
+                                isInteractable = isOffered;
+                            }
+                        }
+
+                        const isActiveOffer = isOffered;
+                        const isTarget = isActiveOffer && turn === computerPlayer && stage === 'DECIDE'; 
+
+                        return (
+                            <button
+                                key={idx}
+                                onClick={() => handleSquareClick(idx)}
+                                disabled={!isInteractable && !isActiveOffer}
+                                className={`
+                                    w-24 h-24 sm:w-32 sm:h-32 rounded-lg text-5xl font-bold flex items-center justify-center transition-all relative
+                                    ${cell ? 'bg-slate-900 cursor-default' : 'bg-slate-700'}
+                                    ${isInteractable ? 'hover:bg-slate-600 cursor-pointer' : 'cursor-default'}
+                                    ${isActiveOffer ? 'ring-4 ring-amber-500 z-10' : ''}
+                                    ${isTarget ? 'animate-bounce ring-rose-500' : ''}
+                                `}
+                            >
+                                {cell && (
+                                    <span className={`fade-in ${cell === 'X' ? 'text-cyan-400' : 'text-rose-400'}`}>
+                                        {cell}
+                                    </span>
+                                )}
+                                {!cell && isActiveOffer && (
+                                    <span className={`pulse-ghost text-4xl ${turn === 'X' ? 'text-cyan-400/50' : 'text-rose-400/50'}`}>
+                                        {turn}?
+                                    </span>
+                                )}
+                                {isInteractable && isTarget && (
+                                    <div className="absolute inset-0 flex items-center justify-center bg-rose-500/20 text-xs text-white font-sans font-bold">
+                                        GIVE THIS
+                                    </div>
+                                )}
+                            </button>
+                        );
+                    })}
+                </div>
+
+                <div className="mt-8 flex gap-4">
+                    {!gameStarted && !winner && (
+                        <button 
+                            onClick={startGame}
+                            className="px-6 py-3 bg-amber-600 hover:bg-amber-500 text-black font-bold rounded-lg shadow-lg transition-all transform hover:scale-105"
+                        >
+                            Start Game
+                        </button>
+                    )}
+                    {(gameStarted || winner) && (
+                        <button 
+                            onClick={startGame} 
+                            className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg font-medium transition-colors"
+                        >
+                            <RefreshIcon size={18} /> Restart
+                        </button>
+                    )}
+                     <button 
+                        onClick={() => setShowRules(true)}
+                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg font-medium transition-colors border border-slate-700"
+                    >
+                        Rules
+                    </button>
+                </div>
+
+                {showRules && (
+                    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowRules(false)}>
+                        <div className="bg-slate-800 p-6 rounded-2xl max-w-md w-full border border-slate-600 shadow-2xl relative" onClick={e => e.stopPropagation()}>
+                            <button onClick={() => setShowRules(false)} className="absolute top-4 right-4 text-slate-400 hover:text-white">✕</button>
+                            
+                            <h2 className="text-2xl font-bold mb-4 text-cyan-400">How to Play</h2>
+                            
+                            <div className="space-y-4 text-slate-300">
+                                <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-700">
+                                    <h3 className="font-bold text-white mb-1 flex items-center gap-2"><SplitIcon size={16}/> 1. Superposition</h3>
+                                    <p className="text-sm">On your turn, you select <strong>TWO</strong> empty squares. You are "proposing" your mark in both spots.</p>
+                                </div>
+                                <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-700">
+                                    <h3 className="font-bold text-white mb-1 flex items-center gap-2"><EyeIcon size={16}/> 2. Observation</h3>
+                                    <p className="text-sm">The Computer then acts as the Observer. It chooses <strong>ONE</strong> of your two squares. That square becomes yours; the other disappears.</p>
+                                </div>
+                                <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-700">
+                                    <h3 className="font-bold text-amber-500 mb-1 flex items-center gap-2"><RefreshIcon size={16}/> 3. Balanced Board Rule</h3>
+                                    <p className="text-sm">To ensure fairness, the game ends when <strong>8 marks</strong> are placed (leaving 1 square empty). If no one has won by then, it is a <strong>Draw</strong>.</p>
+                                </div>
+                            </div>
+
+                            <button onClick={startGame} className="mt-6 w-full py-3 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold rounded-xl transition-all shadow-lg">
+                                Play vs Perfect AI
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+            </div>
+        );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<Game />);
+</script>
+
+</body>
+</html>
